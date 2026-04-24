@@ -1,0 +1,123 @@
+name: Publish Post From Issue
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  publish:
+    if: contains(github.event.issue.labels.*.name, 'publish-post')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Generate post file
+        id: generate
+        uses: actions/github-script@v7
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const issueTitleRaw = process.env.ISSUE_TITLE || '';
+            const issueBody = process.env.ISSUE_BODY || '';
+            const issueNumber = process.env.ISSUE_NUMBER || '';
+
+            const cleanIssueTitle = issueTitleRaw.replace(/^\[发布\]\s*/, '').trim();
+
+            function getField(name) {
+              const regex = new RegExp(`###\\s*${name}\\s*\\n+([\\s\\S]*?)(?=\\n###\\s|$)`, 'm');
+              const match = issueBody.match(regex);
+              return match ? match[1].trim() : '';
+            }
+
+            const title = getField('标题') || cleanIssueTitle || `未命名文章-${issueNumber}`;
+            const categoriesRaw = getField('分类');
+            const tagsRaw = getField('标签');
+            const content = getField('正文（Markdown）') || '请在 Issue 模板中填写正文内容。';
+
+            const categories = categoriesRaw
+              ? categoriesRaw.split(',').map((s) => s.trim()).filter(Boolean)
+              : [];
+            const tags = tagsRaw
+              ? tagsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+              : [];
+
+            const now = new Date();
+            const date = now.toISOString().slice(0, 19).replace('T', ' ');
+            const datePrefix = now.toISOString().slice(0, 10);
+            const safeSlugBase = title
+              .toLowerCase()
+              .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 60);
+            const slug = safeSlugBase || `post-${issueNumber}-${Date.now()}`;
+
+            const fileName = `${datePrefix}-${slug}.md`;
+            const postDir = path.join(process.env.GITHUB_WORKSPACE, 'source', '_posts');
+            const filePath = path.join(postDir, fileName);
+
+            fs.mkdirSync(postDir, { recursive: true });
+
+            const frontMatterLines = [
+              '---',
+              `title: ${title}`,
+              `date: ${date}`,
+            ];
+
+            if (categories.length) {
+              frontMatterLines.push('categories:');
+              categories.forEach((c) => frontMatterLines.push(`  - ${c}`));
+            }
+
+            if (tags.length) {
+              frontMatterLines.push('tags:');
+              tags.forEach((t) => frontMatterLines.push(`  - ${t}`));
+            }
+
+            frontMatterLines.push('---', '');
+
+            const finalContent = `${frontMatterLines.join('\n')}${content}\n`;
+            fs.writeFileSync(filePath, finalContent, 'utf8');
+
+            core.setOutput('file_path', `source/_posts/${fileName}`);
+            core.setOutput('post_title', title);
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ steps.generate.outputs.file_path }}"
+          git commit -m "feat: publish post from issue #${{ github.event.issue.number }}"
+          git push origin main
+
+      - name: Comment and close issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const postPath = `${{ steps.generate.outputs.file_path }}`;
+            const postTitle = `${{ steps.generate.outputs.post_title }}`;
+            const url = `https://${context.repo.owner}.github.io/linping/`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `已自动发布文章：**${postTitle}**\n\n文件：\`${postPath}\`\n站点首页：${url}`
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed'
+            });

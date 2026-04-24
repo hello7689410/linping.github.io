@@ -1,0 +1,43 @@
+name: 发布 Markdown 文章
+description: 提交后会自动生成 Hexo 文章并发布到博客
+title: "[发布] "
+labels:
+  - publish-post
+body:
+  - type: input
+    id: post_title
+    attributes:
+      label: 标题
+      description: 博客文章标题
+      placeholder: 例如：我的第一篇技术笔记
+    validations:
+      required: true
+
+  - type: input
+    id: categories
+    attributes:
+      label: 分类
+      description: 多个分类用英文逗号分隔
+      placeholder: 例如：技术, Hexo
+    validations:
+      required: false
+
+  - type: input
+    id: tags
+    attributes:
+      label: 标签
+      description: 多个标签用英文逗号分隔
+      placeholder: 例如：Markdown, 博客
+    validations:
+      required: false
+
+  - type: textarea
+    id: content
+    attributes:
+      label: 正文（Markdown）
+      description: 直接粘贴 Markdown 正文内容
+      placeholder: |
+        ## 这是一个二级标题
+        这里是正文...
+    validations:
+      required: true
